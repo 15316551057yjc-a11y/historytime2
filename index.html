@@ -1,0 +1,1057 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>历史舆图交互志</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background-color: #e4d7c3;
+      font-family: 'Segoe UI', 'Montserrat', system-ui, -apple-system, BlinkMacSystemFont, 'Roboto', sans-serif;
+      overflow: hidden;
+    }
+
+    #main {
+      height: 100vh;
+      width: 100vw;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+    }
+
+    /* ========= 左侧抽屉区域 ========= */
+    #click-section {
+      width: 26%;
+      height: 100%;
+      padding: 20px 0;
+      position: relative;
+    }
+
+    #drawerboxes {
+      margin-left: 0.5%;
+      width: 100%;
+      height: 100%;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-evenly;
+      gap: 1.2vh;
+    }
+
+    .drawerbox {
+      width: 55%;
+      position: relative;
+      z-index: 100;
+      transform: translateX(-65%);
+      transition: transform 0.5s cubic-bezier(0.2, 0.9, 0.4, 1.1);
+      flex: 1 1 0;
+    }
+
+    .drawerbox.active {
+      transform: translateX(0);
+    }
+
+    .drawer-btn {
+      width: 100%;
+      height: 100%;
+      font: 800 1.6rem 'Montserrat', system-ui;
+      background-color: #cfc2a8;
+      border: none;
+      border-radius: 28px 12px 12px 28px;
+      transition: all 0.4s ease;
+      color: #5f4c2b;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .drawer-btn.active {
+      background-color: #169AA2;
+      color: #FFF9ef;
+      border-left: 6px solid #ffdfa5;
+    }
+
+    .drawer-head {
+      position: absolute;
+      color: rgba(94, 70, 40, 0.55);
+      font-size: 5rem;
+      font-weight: 800;
+      right: -32px;
+      top: 50%;
+      transform: translateY(-50%);
+      pointer-events: none;
+    }
+
+    /* ========= 右侧毛玻璃内容区 ========= */
+    #slide-section {
+      position: relative;
+      height: 100%;
+      width: 72%;
+      display: flex;
+      justify-content: center;
+      padding: 0 22px 0 10px;
+      background: linear-gradient(135deg, rgba(228, 215, 195, 0.85), rgba(210, 192, 165, 0.7));
+      backdrop-filter: blur(14px);
+      border-radius: 48px 0 0 48px;
+      border-left: 1px solid rgba(22, 154, 162, 0.3);
+      overflow: hidden;
+    }
+
+    #slide-bar {
+      position: absolute;
+      top: 12%;
+      left: 10px;
+      height: 76%;
+      width: 3px;
+      background: rgba(22, 154, 162, 0.35);
+    }
+
+    #bar {
+      position: absolute;
+      height: calc(100% / 6);
+      width: 6px;
+      left: -1.5px;
+      background: #169AA2;
+      transition: transform 0.5s cubic-bezier(0.2, 0.9, 0.4, 1.1);
+    }
+
+    #card-section {
+      height: 100%;
+      width: 100%;
+      overflow: hidden;
+      position: relative;
+      margin-left: 0;
+    }
+
+    /* 卡片垂直滑动容器 */
+    .card {
+      height: 100%;
+      width: 100%;
+      padding: 3% 1.3% 3% 1.3%;
+      color: #3e2a1b;
+      transition: transform 0.55s cubic-bezier(0.25, 0.9, 0.3, 1.1);
+      will-change: transform;
+      overflow-y: auto;
+      overflow-x: hidden;
+      position: relative;
+      scrollbar-width: thin;
+    }
+    .card::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    /* 朝代内部多页结构 —— 修复版 */
+    .dual-page-container {
+      display: flex;
+      width: 100%;
+      height: 100%;
+      transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.3, 1);
+      will-change: transform;
+      transform: translateX(0);
+    }
+
+    .triple-page-container {
+      display: flex;
+      width: 300%;
+      height: 100%;
+      transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.3, 1);
+      will-change: transform;
+      transform: translateX(0);
+    }
+
+    .page {
+      width: 100%;
+      height: 100%;
+      overflow-y: auto;
+      padding-right: 12px;
+      scrollbar-width: thin;
+      box-sizing: border-box;
+    }
+
+    /* 双页布局：在“第1页(地图)”时，把原本的“第2页(内容)”填到空位区域 */
+    .dual-page-container > .page {
+      flex: 0 0 50%;
+      width: 50%;
+    }
+
+    /* 当翻到“双页的第2页”时，只保留第2页占满全宽 */
+    .dual-page-container.dual-idx-1 > .page:nth-child(1) {
+      display: none;
+    }
+
+    .dual-page-container.dual-idx-1 > .page:nth-child(2) {
+      flex: 0 0 100%;
+      width: 100%;
+    }
+    .info-page {
+      padding-left: 18px;
+    }
+    /* 晋代第二页 轻微缩小 */
+    #card2 > .dual-page-container > .page:nth-child(2) {
+      transform: scale(0.92);
+      transform-origin: center top;
+    }
+#card2 .img-card {
+  transform: scale(0.82);
+  transform-origin: center top;
+  margin: 0 auto -50px !important;
+}
+#card2 .double-image-layout {
+  gap: 15px !important; /* 👈 间距压到最小 */
+}
+#card2 .double-image-layout,
+#card3 .double-image-layout,
+#card4 .double-image-layout,
+#card5 .double-image-layout {
+  margin-top: 40px !important; 
+}
+    /* 明代第二页 完美右移微调 */
+    #card5 > .triple-page-container > .page:nth-child(2) {
+      padding-left: 24px !important;
+      transform: translateX(6px);
+    }
+
+    /* 明代统一布局：地图 + 图文并排（上），图表在下，不再依赖三页横向翻动 */
+    #card5 > .triple-page-container {
+      display: grid;
+      width: 100%;
+      height: 100%;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 62% 38%;
+      transform: translateX(0) !important;
+      transition: none !important;
+    }
+    #card5 > .triple-page-container > .page:nth-child(1) {
+      grid-column: 1;
+      grid-row: 1 / span 2; /* 地图整块占据中间区域高度 */
+    }
+    #card5 > .triple-page-container > .page:nth-child(2) {
+      grid-column: 2;
+      grid-row: 1;
+      transform: none !important; /* 覆盖上方 translateX(6px) */
+    }
+    #card5 > .triple-page-container > .page:nth-child(3) {
+      grid-column: 2;
+      grid-row: 2;
+    }
+    .page::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    /* 地图页布局 */
+    .map-page {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+
+    .card-small-title {
+      font-size: 1rem;
+      color: #169AA2;
+      border-left: 4px solid #169AA2;
+      padding-left: 12px;
+      margin-bottom: 0.4rem;
+    }
+
+    .card-title {
+      font-size: 2rem;
+      font-weight: 800;
+      color: #2f5e63;
+      margin-bottom: 0.6rem;
+      line-height: 1.2;
+    }
+
+    .card-content {
+      font-size: 0.9rem;
+      background: rgba(242, 230, 210, 0.7);
+      padding: 0.7rem 1rem;
+      border-radius: 28px;
+      border: 1px solid rgba(22, 154, 162, 0.3);
+      margin-bottom: 1rem;
+      flex-shrink: 0;
+    }
+
+    .map-container {
+      width: 100%;
+      flex: 1;
+      min-height: 0;
+      border-radius: 28px;
+      box-shadow: 0 12px 24px rgba(0, 0, 0, 0.12);
+      background: #dacbad;
+      z-index: 5;
+    }
+
+    /* 双图排版 */
+    .double-image-layout {
+      display: flex;
+      height: auto;
+      gap: 20px;
+      flex-direction: column;
+      margin-top: 10px;
+    }
+    .image-text-row {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      height: fit-content;
+      margin: 2px 0;
+    }
+    .img-card {
+      flex: 1;
+      background: rgba(250, 245, 235, 0.9);
+      border-radius: 28px;
+      padding: 0.8rem;
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.05);
+      border: 1px solid rgba(22, 154, 162, 0.25);
+    }
+    .img-card img {
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      object-fit: contain;
+      border-radius: 20px;
+      background: #efe1cd;
+    }
+    .text-block {
+      flex: 1;
+      background: rgba(250, 245, 235, 0.9);
+      border-radius: 28px;
+      padding: 1rem 1.2rem;
+      border-left: 6px solid #169AA2;
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.05);
+    }
+    .text-block i {
+      color: #169AA2;
+      margin-right: 8px;
+    }
+    .text-block strong {
+      font-size: 1.1rem;
+      display: block;
+      margin-bottom: 0.5rem;
+      color: #2f5e63;
+    }
+    .text-block p {
+      font-size: 0.9rem;
+      line-height: 1.45;
+      color: #3e2a1b;
+    }
+
+    .card1-info .card-small-title {
+      font-size: 1.2rem;
+      margin-bottom: 0.2rem;
+    }
+    .card1-info .card-title {
+      font-size: 2.7rem;
+      margin-bottom: 4rem;
+    }
+
+    .simple-placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      background: rgba(242, 230, 210, 0.5);
+      border-radius: 28px;
+      color: #8b765a;
+      font-size: 0.9rem;
+      text-align: center;
+      padding: 1.6rem;
+    }
+
+    /* 图表容器 */
+    .chart-box {
+      width: 100%;
+      height: 80%;
+      border-radius: 28px;
+      background: rgba(242,230,210,0.5);
+      border: 1px solid rgba(22, 154, 162, 0.3);
+      overflow: hidden;
+    }
+
+    .page-nav {
+      position: absolute;
+      bottom: 24px;
+      right: 28px;
+      display: flex;
+      gap: 12px;
+      z-index: 40;
+      background: rgba(22, 154, 162, 0.85);
+      backdrop-filter: blur(8px);
+      padding: 5px 12px;
+      border-radius: 50px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+      border: 1px solid rgba(255, 240, 200, 0.7);
+    }
+
+    /* 双页卡不再需要翻页按钮：地图与第二页内容已同时占位显示 */
+    #card1 .page-nav,
+    #card2 .page-nav,
+    #card3 .page-nav,
+    #card4 .page-nav,
+    #card5 .page-nav,
+    #card6 .page-nav {
+      display: none;
+    }
+
+    .nav-arrow {
+      background: #fff2e0;
+      border: none;
+      font-size: 1.3rem;
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: #169AA2;
+      transition: all 0.2s ease;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    }
+
+    .nav-arrow:hover {
+      background: #169AA2;
+      color: white;
+      transform: scale(1.03);
+    }
+
+    .nav-arrow:active {
+      transform: scale(0.96);
+    }
+
+    @media (max-width: 1000px) {
+      .card-title { font-size: 1.6rem; }
+      .card1-info .card-title { font-size: 2rem; }
+      .nav-arrow { width: 32px; height: 32px; font-size: 1rem; }
+      .image-text-row { gap: 14px; }
+    }
+
+    .custom-popup .leaflet-popup-content-wrapper {
+      background: #2f5e63;
+      color: #fffaec;
+      border-radius: 20px;
+      max-width: 320px;
+      padding: 0;
+    }
+    .custom-popup .leaflet-popup-content {
+      margin: 12px 16px;
+      line-height: 1.4;
+    }
+    .popup-img {
+      width: 100%;
+      max-height: 180px;
+      object-fit: contain;
+      border-radius: 12px;
+      margin: 8px 0;
+      background: #f0e4d0;
+    }
+
+    /* ========= 图片点击放大（Lightbox）========= */
+    .image-lightbox {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.65);
+      z-index: 9999;
+      padding: 24px;
+    }
+
+    .image-lightbox.active {
+      display: flex;
+    }
+
+    .image-lightbox .lightbox-close {
+      position: absolute;
+      top: 18px;
+      right: 18px;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      border: none;
+      background: rgba(0, 0, 0, 0.45);
+      color: #fff;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
+    }
+
+    .image-lightbox .lightbox-close i {
+      font-size: 1.2rem;
+    }
+
+    .image-lightbox img {
+      max-width: 92vw;
+      max-height: 82vh;
+      object-fit: contain;
+      border-radius: 14px;
+      box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
+      background: #111;
+    }
+
+    .lightbox-caption {
+      margin-top: 12px;
+      text-align: center;
+      color: rgba(255, 255, 255, 0.92);
+      font-size: 0.95rem;
+      max-width: 92vw;
+      line-height: 1.4;
+      white-space: pre-wrap;
+    }
+
+    .img-card img {
+      cursor: zoom-in;
+    }
+  </style>
+</head>
+<body>
+<div id="main">
+  <div id="click-section">
+    <div id="drawerboxes">
+      <div class="drawerbox active"><button class="drawer-btn active" onclick="slideTo(1)">秦<span class="drawer-head">1</span></button></div>
+      <div class="drawerbox"><button class="drawer-btn" onclick="slideTo(2)">晋<span class="drawer-head">2</span></button></div>
+      <div class="drawerbox"><button class="drawer-btn" onclick="slideTo(3)">宋<span class="drawer-head">3</span></button></div>
+      <div class="drawerbox"><button class="drawer-btn" onclick="slideTo(4)">元<span class="drawer-head">4</span></button></div>
+      <div class="drawerbox"><button class="drawer-btn" onclick="slideTo(5)">明<span class="drawer-head">5</span></button></div>
+      <div class="drawerbox"><button class="drawer-btn" onclick="slideTo(6)">清<span class="drawer-head">6</span></button></div>
+    </div>
+  </div>
+
+  <div id="slide-section">
+    <div id="slide-bar"><div id="bar"></div></div>
+    <div id="card-section">
+
+<!-- 秦 -->
+<div id="card1" class="card">
+  <div class="dual-page-container" id="dual1">
+    <div class="page map-page">
+      <div class="card-small-title">甘肃 · 天水 · 放马滩</div>
+      <div class="card-title">秦 · 放马滩木板地图</div>
+      <div class="card-content">秦昭襄王三十八年（前269年）木板地图，现存最早实用地图之一，秦隶文字写于木牍。</div>
+      <div id="map1" class="map-container"></div>
+      <div style="margin-top: 12px; font-size: 0.75rem; color: #5f6b5a;">
+        <i class="fas fa-map-marker-alt" style="color:#169AA2;"></i> 点击图中标记查看详情
+      </div>
+    </div>
+    <div class="page info-page card1-info">
+      <div class="card-small-title">秦隶 · 简牍遗珍</div>
+      <div class="card-title">放马滩木板地图</div>
+      <div class="double-image-layout">
+        <div class="image-text-row">
+          <div class="img-card">
+            <img src="./img/qin_fangmatan1.jpg" 
+                 alt="放马滩秦隶1" 
+                 onerror="this.src='https://placehold.co/600x400/e9dbc9/5f4c2b?text=秦简1'">
+          </div>
+          <div class="text-block">
+            <i class="fas fa-pen-fancy"></i><strong>秦隶 · 古隶风骨</strong>
+            <p>秦隶，是篆书向成熟隶书过渡的形态，仍保留不少篆书圆转笔意，同时出现隶书平直、波磔萌芽，属战国晚期秦国日常实用书体。</p>
+          </div>
+        </div>
+        <div class="image-text-row">
+          <div class="img-card">
+            <img src="./img/qin_fangmatan2.jpg" 
+                 alt="放马滩秦隶2" 
+                 onerror="this.src='https://placehold.co/600x400/e9dbc9/5f4c2b?text=秦简2'">
+          </div>
+          <div class="text-block">
+            <i class="fas fa-scroll"></i><strong>秦隶的流行时代与用途</strong>
+            <p>秦隶（古隶）主要盛行于战国晚期秦国→秦朝→西汉早期，多用于官府文书、基层行政、民间实用书写，非典礼专用字体。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="page-nav">
+    <button class="nav-arrow prevPage"><i class="fas fa-arrow-left"></i></button>
+    <button class="nav-arrow nextPage"><i class="fas fa-arrow-right"></i></button>
+  </div>
+</div>
+
+<!-- 晋 -->
+<div id="card2" class="card">
+  <div class="dual-page-container" id="dual2">
+    <div class="page map-page">
+      <div class="card-small-title">山西 · 临汾</div>
+      <div class="card-title">晋 · 裴秀《禹贡地域图》</div>
+      <div class="card-content">《禹贡地域图》是西晋地图学家裴秀于泰始四年至七年（268―271）主编完成的历史地图集，共18篇，为中国有文献可考的最早以疆域政区为主体的地图集。</div>
+      <div id="map2" class="map-container"></div>
+    </div>
+    <div class="page info-page">
+      <div class="card-small-title">晋代舆图与书体</div>
+      <div class="card-title">禹贡地域图</div>
+      <div class="double-image-layout">
+        <div class="img-card">
+          <img src="./img/jin_yugongdiyutu.jpg" 
+               alt="禹贡地域图" 
+               onerror="this.src='https://placehold.co/600x400/e9dbc9/5f4c2b?text=晋·禹贡地域图'">
+        </div>
+        <div class="text-block">
+          <i class="fas fa-pen"></i><strong>晋隶特征</strong>
+          <p>晋隶，指晋朝时期的楷书，保留隶书的部分风格特征，属书法派别。该字体由汉代隶书演化而来，魏晋时期逐渐向楷书转变，笔画形态上提按顿挫分明，波挑减少而折笔趋方，仍带有隶书意趣。</p>
+        </div>
+        <div class="text-block">
+          <i class="fas fa-book"></i><strong>晋隶使用场景</strong>
+          <p>晋隶作为西晋时期通行的官方正体，广泛应用于朝廷诏令奏议、碑刻铭记、经籍缮写、地图注记、官方档案与礼器题铭等庄重正式场合，既是政务文书的规范用字，也是彰显典重肃穆的礼仪性书体。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="page-nav">
+    <button class="nav-arrow prevPage"><i class="fas fa-arrow-left"></i></button>
+    <button class="nav-arrow nextPage"><i class="fas fa-arrow-right"></i></button>
+  </div>
+</div>
+
+<!-- 宋 -->
+<div id="card3" class="card">
+  <div class="dual-page-container" id="dual3">
+    <div class="page map-page">
+      <div class="card-small-title">东南沿海 · 宁波·南京</div>
+      <div class="card-title">宋 · 《鄞县县境图》《龙盘虎踞图》</div>
+      <div class="card-content">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;《鄞县县境图》是南宋地图学家于宝庆三年（1227）绘制完成的区域地图，收录于《中国古代海洋地图举要》。<br>
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;《龙盘虎踞图》是南宋地图学家于景定二年（1261）绘制完成的城市地图，收录于《景定建康志》。</div>
+      <div id="map3" class="map-container"></div>
+    </div>
+    <div class="page info-page">
+      <div class="card-small-title">宋代舆图与书体</div>
+      <div class="card-title">《鄞县县境图》与《龙盘虎踞图》</div>
+      <div class="double-image-layout">
+        <div class="image-text-row">
+          <div class="img-card">
+            <img src="./img/song_yinxianxianjingtu.jpeg" 
+                 alt="鄞县县境图"
+                 onerror="this.src='https://placehold.co/600x400/e9dbc9/5f4c2b?text=宋·鄞县图'">
+          </div>
+          <div class="img-card">
+            <img src="./img/song_longpanhujutu.jpeg" 
+                 alt="龙盘虎踞图"
+                 onerror="this.src='https://placehold.co/600x400/e9dbc9/5f4c2b?text=宋·龙盘虎踞图'">
+          </div>
+        </div>
+        <div class="text-block">
+          <i class="fas fa-map"></i><strong>宋代制图繁荣原因</strong>
+          <p> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;宋代地图数量大幅增多，主要源于中央集权下全国疆域、户籍、赋税与边防管理的迫切需求，朝廷多次组织全国性地理普查与图经编纂，加之雕版印刷技术成熟让地图得以批量刊刻流传，同时科举与教育发展推动士人重视地理之学，城市经济繁荣、河渠漕运与边防战事也促使各类城池图、水利图、边防图、交通图大量绘制，使得两宋制图空前繁荣。</p>
+        </div>
+        <div class="text-block">
+          <i class="fas fa-pen"></i><strong>宋代地图字体构成</strong>
+          <p> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;宋代地图上的字体以楷书为主，约占 85%-90%，用于绝大多数地名、注记与正文；隶书约占 5%-8%，多用于碑额、图名等庄重标题；行书 / 草书约占 2%-5%，常见于跋文、题记或少量手写注记；瘦金体、篆书等仅零星出现，占比不足 1%。<br>楷书在宋代是官方文书、科举试卷、典籍刊刻、碑志题铭的主流字体，也是日常书写、公文政务与教育识字的通用正体，应用极为普遍。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="page-nav">
+    <button class="nav-arrow prevPage"><i class="fas fa-arrow-left"></i></button>
+    <button class="nav-arrow nextPage"><i class="fas fa-arrow-right"></i></button>
+  </div>
+</div>
+
+<!-- 元 -->
+<div id="card4" class="card">
+  <div class="dual-page-container" id="dual4">
+    <div class="page map-page">
+      <div class="card-small-title">湖南 · 长沙</div>
+      <div class="card-title">元 · 《南台按治三省十道图》</div>
+      <div class="card-content">《南台按治三省十道图》 是元代地图学家于元代绘制完成的军事边防图，现收录于《中国古代海洋地图举要》。</div>
+      <div id="map4" class="map-container"></div>
+    </div>
+    <div class="page info-page">
+      <div class="card-small-title">元代舆图与文字</div>
+      <div class="card-title">《南台按治三省十道图》</div>
+      <div class="double-image-layout">
+        <div class="image-text-row">
+          <div class="img-card">
+            <img src="./img/yuan_nantai.jpeg"
+                 alt="元代《南台按治三省十道图》"
+                 onerror="this.src='https://placehold.co/600x400/e9dbc9/5f4c2b?text=%E5%8D%97%E5%8F%B0%E6%8C%89%E6%B2%BB%E4%B8%89%E7%9C%81%E5%8D%81%E9%81%93%E5%9B%BE'">
+          </div>
+        </div>
+        <div class="text-block">
+          <i class="fas fa-pen"></i><strong>元代地图字体主流</strong>
+          <p> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;元代传世地图多以楷书书写，这与元代行政结构高度吻合。蒙古统治者虽主掌军政，但行政文书、舆图绘制等技术性文职多由汉人吏员与儒士承担；加之唐宋以来官方文书与地图题记本就以楷书为规范字体，因此现存元代地图呈现以楷书为主的面貌，是合理且必然的结果。</p>
+        </div>
+        <div class="text-block">
+          <i class="fas fa-language"></i><strong>多民族文字格局</strong>
+          <p>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;元代多民族并存，但汉文始终是行政主体文字之一。此外，八思巴文、蒙古文确实存在，但不进入地图注记体系。</p>
+        </div>
+
+        <div class="image-text-row">
+          <div class="img-card">
+            <img src="./img/蒙古文.png"
+                 alt="蒙古文"
+                 onerror="this.src='https://placehold.co/600x400/e9dbc9/5f4c2b?text=%E8%92%99%E5%8F%A4%E6%96%87'">
+          </div>
+          <div class="img-card">
+            <img src="./img/八思巴文.png"
+                 alt="八思巴文"
+                 onerror="this.src='https://placehold.co/600x400/e9dbc9/5f4c2b?text=%E5%85%AB%E6%80%9D%E5%B7%B4%E6%96%87'">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="page-nav">
+    <button class="nav-arrow prevPage"><i class="fas fa-arrow-left"></i></button>
+    <button class="nav-arrow nextPage"><i class="fas fa-arrow-right"></i></button>
+  </div>
+</div>
+
+<!-- 明 → 三页 -->
+<div id="card5" class="card">
+  <div class="triple-page-container" id="triple5">
+    <!-- 第1页：地图 -->
+    <div class="page map-page">
+      <div class="card-small-title">江西·福建 · 南昌至泉州</div>
+      <div class="card-title">明 · 《江西全省图说》《郑和航海图》</div>
+      <div class="card-content">《江西全省图说》是明代地图学家于明万历年间（1573—1620年）绘制完成的区域地图集，现藏于中国国家图书馆，为绢底彩绘本。<br>《郑和航海图》原名《自宝船厂开船从龙江关出水直抵外国诸番图》，是明代航海图籍，约成于洪熙元年至宣德五年（1425—1430）间，为郑和下西洋航路的记录。</div>
+      <div id="map5" class="map-container"></div>
+    </div>
+    <!-- 第2页：图文 -->
+    <div class="page info-page">
+      <div class="card-small-title">明代舆图与字体</div>
+      <div class="card-title">《江西全省图说》与《郑和航海图》</div>
+      <div class="double-image-layout">
+        <div class="image-text-row">
+          <div class="img-card">
+            <img src="./img/ming_jiangxiquanshengtushuo.png" 
+                 alt="江西全省图说"
+                 onerror="this.src='https://placehold.co/600x400/e9dbc9/5f4c2b?text=明·江西图'">
+          </div>
+          <div class="img-card">
+            <img src="./img/ming_zhenghehanghaitu.png" 
+                 alt="郑和航海图"
+                 onerror="this.src='https://placehold.co/600x400/e9dbc9/5f4c2b?text=明·郑和航海图'">
+          </div>
+        </div>
+        <div class="text-block">
+          <i class="fas fa-pen"></i><strong>字体多元成因</strong>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;明代地图字体多元化，是文化思潮、制图主体、技术革新与功能拓展共同作用的结果。明代中期兴起的“文必秦汉，字学汉隶”复古思潮，将隶书塑造为古雅庄重的礼仪性字体，与篆书、楷书、行草共同形成清晰的字体等级，使标题用隶书成为彰显文献权威与文化品位的手段。与此同时，文人学
+          者深度参与制图，将书法审美与地理实用相结合，主动选用隶书、楷书、行楷等不同字体，以服务于地图的文献性、艺术性与实用性。明代中期复古思潮“文必秦汉，字学汉隶”，使隶书成古雅礼仪字体；文人深度参与制图，结合书法审美；雕版印刷形成手绘与刻本两套字体，功能拓展使字体按需选用。<br>  
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;技术层面，雕版印刷的大规模普及催生了手绘与刻本两套字体体系：手绘地图以隶书为标题、行楷作注记，刻本地图则发展出横细竖粗、易刻易读的宋体，雕版印刷的标准化与多样化进一步推动了字体的多元格局。此外，明代地图功能从单一的行政、军事扩展到文人山水舆图、航海图、世界地图等多种类型，不同功能对字体各有侧重，加之隶书庄重但书写效率低，楷书、行楷兼顾清晰与效率，宋体则便于印刷，使制图者根据位置、载体与功能灵活选用字体，最终形成多元并存的局面。</p>
+        </div>
+        <div class="text-block">
+          <i class="fas fa-bookmark"></i><strong>标题多用隶书的原因</strong>
+          <p>    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;明代地图多用隶书作标题，主要源于文化风气与制图主体两方面的变化。一方面，明代中期起，文坛书坛盛行复古思潮，隶书因其古雅、正统的视觉特征，成为彰显文献品位与仪式感的标志性字体，形成了“用隶书装典雅”的风气。另一方面，随着雕版印刷普及，地图作为书籍插图对美观度的要求提高，加之罗洪先、杨慎、徐霞客等文人
+            学者亲自参与制图，将书法审美带入地图绘制，自然形成“标题用复古隶书、内容用工整楷书”的搭配方式，既满足了庄重典雅的礼仪需求，也兼顾了地图的实用与审美功能。</p>
+        </div>
+      </div>
+    </div>
+    <!-- 第3页：图表 -->
+    <div class="page info-page">
+      <div class="card-small-title">数据对比</div>
+      <div class="card-title">明清人口与制图产出相关性</div>
+      <div id="mingChart" class="chart-box"></div>
+    </div>
+  </div>
+  <div class="page-nav">
+    <button class="nav-arrow prevPage"><i class="fas fa-arrow-left"></i></button>
+    <button class="nav-arrow nextPage"><i class="fas fa-arrow-right"></i></button>
+  </div>
+</div>
+
+<!-- 清 -->
+<div id="card6" class="card">
+  <div class="dual-page-container" id="dual6">
+    <div class="page map-page">
+      <div class="card-small-title">福建 · 云霄</div>
+      <div class="card-title">清 · 《云霄厅城池之图》</div>
+      <div class="card-content">《云霄厅城池之图》 是清代地图学家于嘉庆二十一年（1816年）绘制完成的城市地图，现收录于《云霄厅志》</div>
+      <div id="map6" class="map-container"></div>
+    </div>
+    <div class="page info-page">
+      <div class="card-small-title">清代舆图与字体</div>
+      <div class="card-title">《云霄厅城池之图》</div>
+      <div class="double-image-layout">
+        <div class="img-card">
+          <img src="./img/qing_yunxiaotingchengchizhitu.jpg" 
+               alt="云霄厅城池图"
+               onerror="this.src='https://placehold.co/600x400/e9dbc9/5f4c2b?text=清·云霄厅图'">
+        </div>
+        <div class="text-block">
+          <i class="fas fa-pen"></i><strong>清代地图字体</strong>
+          <p>清代地图的字体以楷书、宋体（仿宋）为绝对主流，隶书仅少量用于标题。
+
+        晚清则在传统基础上，叠加西方印刷技术、拼音标注、简化字萌芽、机械制图字体四大影响，字体走向多元与实用化。
+</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="page-nav">
+    <button class="nav-arrow prevPage"><i class="fas fa-arrow-left"></i></button>
+    <button class="nav-arrow nextPage"><i class="fas fa-arrow-right"></i></button>
+  </div>
+</div>
+
+    </div>
+  </div>
+</div>
+
+<!-- 图片点击放大（Lightbox） -->
+<div id="image-lightbox" class="image-lightbox" aria-hidden="true">
+  <button class="lightbox-close" type="button" aria-label="关闭图片">
+    <i class="fas fa-times"></i>
+  </button>
+  <div style="display:flex;flex-direction:column;align-items:center;">
+    <img id="lightbox-img" alt="" src="" />
+    <div id="lightbox-caption" class="lightbox-caption"></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  const maps = [];
+  const locations = {
+    1: { type: 'point', coords: [34.33, 106.02], zoom: 12 },
+    2: { type: 'point', coords: [34.8, 112.5], zoom: 10 },
+    3: { type: 'bounds', coords: [[29.86, 121.55], [32.04, 118.78]], zoom: 9 },
+    4: { type: 'point', coords: [28.22, 112.98], zoom: 10 },
+    5: { type: 'bounds', coords: [[28.68, 115.85], [24.9, 118.45]], zoom: 8 },
+    6: { type: 'point', coords: [23.96, 117.34], zoom: 12 }
+  };
+
+  const pageIndex = [0, 0, 0, 0, 0, 0];
+
+  function getTotalPages(cardNum) {
+    return cardNum === 5 ? 3 : 2;
+  }
+
+  async function initAllMaps() {
+    for (let i = 1; i <= 6; i++) {
+      const mapDiv = document.getElementById(`map${i}`);
+      if (!mapDiv) continue;
+      const map = L.map(mapDiv, { zoomControl: true }).setView([32, 110], 5);
+      L.tileLayer('https://webst01.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}', {
+        attribution: '高德地图', maxZoom: 18
+      }).addTo(map);
+
+      if (i === 1) {
+        L.marker([34.33, 106.02], { title: "放马滩" })
+          .bindPopup(`
+甘肃天水放马滩木板地图所属年代秦昭襄王三十八年（前269年）
+地图上的字体，学术上称为秦隶（古隶 / 战国秦隶书）。
+`, { className: 'custom-popup' })
+          .addTo(map);
+      }
+      if (i === 2) {
+        L.marker([34.8, 112.5], { title: "临汾" })
+          .bindPopup(`原图隋前已佚，仅存序文与制图理论于《晋书・裴秀传》。结合历史背景，推测《禹贡地域图》上的正式注记文字为西晋官方正体 —— 晋隶。
+`, { className: 'custom-popup' })
+          .addTo(map);
+      }
+      if (i === 3) {
+        L.marker([29.86, 121.55]).bindPopup("图中以楷书标注地名，书体工整严谨，为南宋时期城市地图的典型之作。", { className: 'custom-popup' }).addTo(map);
+        L.marker([32.04, 118.78]).bindPopup("图中以楷书标注地名，书体端正清晰，为南宋时期地方行政地图的重要代表。", { className: 'custom-popup' }).addTo(map);
+      }
+      if (i === 4) {
+        L.marker([28.22, 112.98]).bindPopup("图中以楷书标注地名，书体工整严谨，为元代军事边防与行政区划地图的重要代表。", { className: 'custom-popup' }).addTo(map);
+      }
+      if (i === 5) {
+        L.marker([28.68, 115.85]).bindPopup("图册采用图文并茂的方式，以中国传统形象画法精细描绘江西省各府县的山川、城池、要道等地理要素，图说部分以楷书书写，工整美观，清丽工整，古朴精雅。此本是现存最早的江西省地图集，为研究明代江西历史、地理及中国传统制图水平的珍贵资料。", { className: 'custom-popup' }).addTo(map);
+        L.marker([24.9, 118.45]).bindPopup("图中所附文字及注记以宋体书写，茅元仪收入《武备志》时改为书本式，共二十四页，包括针路航线、过洋牵星图等内容。此图是研究郑和下西洋及中国古代航海技术的核心资料。", { className: 'custom-popup' }).addTo(map);
+      }
+      if (i === 6) {
+        L.marker([23.96, 117.34]).bindPopup("图中以楷书标注地名、城防、衙署、庙宇等要素，书体工整严谨，为清代地方厅城舆图的典型之作，对研究清代东南沿海城池建制与地方历史具有重要价值。", { className: 'custom-popup' }).addTo(map);
+      }
+      maps.push(map);
+    }
+
+    setTimeout(() => {
+      moveMap(1);
+      maps.forEach(m => m.invalidateSize());
+      initMingChart();
+    }, 200);
+  }
+
+  function initMingChart() {
+    const dom = document.getElementById('mingChart');
+    if (!dom) return;
+    const chart = echarts.init(dom);
+    const option = {
+      backgroundColor: 'transparent',
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: 'rgba(228,215,195,0.9)',
+        borderColor: '#169AA2', textStyle:{color:'#3e2a1b'}
+      },
+      legend: { data:['明代人口','清代人口','明地图数','清地图数'], top:5 },
+      grid: { top:'12%', left:'5%', right:'5%', bottom:'8%', containLabel:true },
+      xAxis: { type:'category', data:['江苏','山东','江西','浙江','福建','安徽'] },
+      yAxis: [
+        { type:'value', name:'人口(万)', position:'left', axisLine:{color:'#169AA2'} },
+        { type:'value', name:'地图数', position:'right', axisLine:{color:'#2f5e63'} }
+      ],
+      series: [
+        { name:'明代人口', type:'line', smooth:true, data:[1100,950,800,900,450,600], itemStyle:{color:'#169AA2'} },
+        { name:'清代人口', type:'line', smooth:true, data:[2500,3800,2400,2600,1500,3200], itemStyle:{color:'#2f5e63'} },
+        { name:'明地图数', type:'bar', yAxisIndex:1, data:[25,18,20,15,12,10], itemStyle:{color:'rgba(22,154,162,0.6)'} },
+        { name:'清地图数', type:'bar', yAxisIndex:1, data:[72,95,91,67,63,46], itemStyle:{color:'rgba(47,94,99,0.6)'} }
+      ]
+    };
+    chart.setOption(option);
+    window.addEventListener('resize',()=>chart.resize());
+  }
+
+  function moveMap(num) {
+    const map = maps[num - 1];
+    const t = locations[num];
+    if (!map || !t) return;
+    map.invalidateSize();
+    if (t.type === 'point') map.flyTo(t.coords, t.zoom, { duration: 1 });
+    if (t.type === 'bounds') map.flyToBounds(t.coords, { padding: [50, 50], duration: 1 });
+  }
+
+  let chosenSlideNumber = 1;
+  let offset = 0, barOffset = 0;
+
+  function slideTo(num) {
+    if (num < 1 || num > 6 || chosenSlideNumber === num) return;
+    document.querySelectorAll(".drawerbox")[chosenSlideNumber - 1].classList.remove("active");
+    document.querySelectorAll(".drawer-btn")[chosenSlideNumber - 1].classList.remove("active");
+    document.querySelectorAll(".drawerbox")[num - 1].classList.add("active");
+    document.querySelectorAll(".drawer-btn")[num - 1].classList.add("active");
+
+    offset += (num - chosenSlideNumber) * -100;
+    barOffset += (num - chosenSlideNumber) * 100;
+    document.querySelector("#bar").style.transform = `translateY(${barOffset}%)`;
+    document.querySelectorAll(".card").forEach(c => c.style.transform = `translateY(${offset}%)`);
+
+    chosenSlideNumber = num;
+    pageIndex[num - 1] = 0;
+    const wrap = document.getElementById(`dual${num}`) || document.getElementById(`triple${num}`);
+    if (wrap) wrap.style.transform = "translateX(0)";
+
+    // 确保切换到新朝代时，双页卡仍按“第1页(地图) + 第2页内容填充空位”的布局显示
+    updatePage(num);
+
+    moveMap(num);
+    setTimeout(() => maps[num - 1]?.invalidateSize(), 120);
+  }
+
+  // 绑定翻页箭头
+  function bindPageArrows() {
+    for (let i = 1; i <= 6; i++) {
+      const card = document.getElementById(`card${i}`);
+      const wrap = document.getElementById(`dual${i}`) || document.getElementById(`triple${i}`);
+      const prev = card?.querySelector('.prevPage');
+      const next = card?.querySelector('.nextPage');
+      if (!wrap || !prev || !next) continue;
+
+      prev.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (pageIndex[i-1] > 0) {
+          pageIndex[i-1]--;
+          updatePage(i);
+        }
+      });
+
+      next.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const total = getTotalPages(i);
+        if (pageIndex[i-1] < total - 1) {
+          pageIndex[i-1]++;
+          updatePage(i);
+        }
+      });
+    }
+  }
+
+  // 精准翻页：双页 / 三页 完美计算
+  function updatePage(cardNum) {
+    const wrap = document.getElementById(`dual${cardNum}`) || document.getElementById(`triple${cardNum}`);
+    const total = getTotalPages(cardNum);
+    const idx = pageIndex[cardNum - 1];
+
+    if (cardNum === 5) {
+      // 明代：统一成网格布局，禁止横向翻页位移
+      wrap.style.transform = 'translateX(0)';
+    } else if (total === 2) {
+      // 双页：现在直接并排显示“第1页(地图) + 第2页内容”，不再依赖翻页按钮切换
+      wrap.classList.remove('dual-idx-1');
+      wrap.style.transform = 'translateX(0)';
+    } else {
+      // 三页：保持原来的横向翻页动画与计算方式
+      const translateX = idx * -33.3333;
+      wrap.style.transform = `translateX(${translateX}%)`;
+    }
+
+    if (idx === 0 && maps[cardNum-1]) {
+      setTimeout(() => maps[cardNum-1].invalidateSize(), 100);
+    }
+  }
+
+  window.addEventListener('resize', () => {
+    maps.forEach(m => m?.invalidateSize());
+  });
+
+  initAllMaps().then(() => {
+    bindPageArrows();
+  });
+
+  // ========= 图片 Lightbox：点击图片放大查看 =========
+  function setupImageLightbox() {
+    const lightbox = document.getElementById('image-lightbox');
+    const lightboxImg = document.getElementById('lightbox-img');
+    const lightboxCaption = document.getElementById('lightbox-caption');
+    if (!lightbox || !lightboxImg || !lightboxCaption) return;
+
+    const open = (src, caption) => {
+      if (!src) return;
+      lightboxImg.src = src;
+      lightboxImg.alt = caption || '';
+      lightboxCaption.textContent = caption || '';
+      lightbox.classList.add('active');
+      lightbox.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+    };
+
+    const close = () => {
+      lightbox.classList.remove('active');
+      lightbox.setAttribute('aria-hidden', 'true');
+      lightboxImg.src = '';
+      document.body.style.overflow = '';
+    };
+
+    lightbox.addEventListener('click', (e) => {
+      if (e.target === lightbox) close();
+    });
+
+    const closeBtn = lightbox.querySelector('.lightbox-close');
+    closeBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      close();
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && lightbox.classList.contains('active')) close();
+    });
+
+    // 只绑定内容卡片里的图片，避免影响其它 UI
+    document.querySelectorAll('.img-card img').forEach((img) => {
+      img.addEventListener('click', (e) => {
+        e.stopPropagation();
+        open(img.currentSrc || img.src, img.alt || '');
+      });
+    });
+  }
+
+  setupImageLightbox();
+</script>
+</body>
+</html>
